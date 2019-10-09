@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/user"
 	"strings"
+	"time"
 )
 
 const PATH = "Fotos/Wallpapers/" // Path inside $HOME folder to store downloaded wallpapers
@@ -66,7 +67,7 @@ func processMD5ForExistingFiles(folderPath string) {
 	}
 }
 
-func performHTTPRequest(url string) *http.Response {
+func performHTTPRequest(url string) (*http.Response, error) {
 	headers := map[string]string{
 		"User-Agent":                "Mozilla/5.0 (X11; Linux x86_64; rv:66.0) Gecko/20100101 Firefox/66.0",
 		"Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -80,12 +81,12 @@ func performHTTPRequest(url string) *http.Response {
 		req.Header.Set(key, value)
 	}
 	client := &http.Client{}
-	resp, err := client.Do(req)
-	__manageError__(err)
-	return resp
+	return client.Do(req)
 }
 
 func main() {
+	start := time.Now()
+	end := time.Now()
 	url := "https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=%d&mkt=%s"
 	usr, err := user.Current()
 	downloadCounter := 0
@@ -97,7 +98,14 @@ func main() {
 	processMD5ForExistingFiles(folderPath)
 	for _, mkt := range MARKETS {
 		completeURL := fmt.Sprintf(url, AMOUNT, mkt)
-		response := performHTTPRequest(completeURL)
+		response, err := performHTTPRequest(completeURL)
+		for err != nil {
+			end = time.Now()
+			response, err = performHTTPRequest(completeURL)
+			if end.Sub(start).Seconds() >= 20 {
+				__manageError__(fmt.Errorf("Unable to connect: %s", err.Error()))
+			}
+		}
 		body, err := ioutil.ReadAll(response.Body)
 		__manageError__(err)
 		err = json.Unmarshal(body, &images)
@@ -106,7 +114,8 @@ func main() {
 			pic := images.Images[index]
 			var title string
 			completeUrl := fmt.Sprintf("https://www.bing.com%s", pic.Url)
-			image := performHTTPRequest(completeUrl)
+			image, err := performHTTPRequest(completeUrl)
+			__manageError__(err)
 			bodyInBytes, _ := ioutil.ReadAll(image.Body)
 			md5hash, err := hashFileMd5(bodyInBytes)
 			__manageError__(err)
